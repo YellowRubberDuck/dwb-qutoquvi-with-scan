@@ -1,0 +1,306 @@
+/*jslint eqeq:true */
+//
+//  Copyright (c) 2012 Stefan Bolte <portix@gmx.net>
+//
+//  This program is free software; you can redistribute it and/or modify
+//  it under the terms of the GNU General Public License as published by
+//  the Free Software Foundation; either version 3 of the License, or
+//  (at your option) any later version.
+//  
+//  This program is distributed in the hope that it will be useful,
+//  but WITHOUT ANY WARRANTY; without even the implied warranty of
+//  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+//  GNU General Public License for more details.
+//  
+//  You should have received a copy of the GNU General Public License along
+//  with this program; if not, write to the Free Software Foundation, Inc.,
+//  51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+//
+
+/*<INFO
+Automatically load videos supported by libquvi in an external player
+INFO>*/
+
+var me = "autoquvi";
+var defaultConfig = { 
+//<DEFAULT_CONFIG
+// The quvi command
+quvi      : "quvi",  
+
+// External player command
+player    : "mplayer %u", 
+
+// Whether to automatically play videos if quvi finds a playable
+// video
+autoPlay  : true, 
+
+// Whether to choose the quality before quvi starts
+chooseQuality : true,
+
+// A shortcut that spawns quvi for the current website
+shortcut  : "",
+
+// A command that spawns quvi for the current website 
+command  : "autoquvi", 
+
+// 
+// Whether to autospawn quvi only in the active tab
+activeOnly : true 
+
+//>DEFAULT_CONFIG
+};
+
+var config = {};
+var quviSeries;
+var supported = [];
+
+var tryPlayResponse = {
+    onFinished : function(response) {
+        if (response.status == 0) {
+            io.notify("Playing video using autoquvi");
+        }
+    }
+};
+function playVideo(uri, arg)
+{
+    if (quviSeries === 9)
+    {
+        system.spawn(
+                config.quvi 
+                + " dump " + (arg || "") + uri
+                + " --exec " + JSON.stringify(config.player), tryPlayResponse);
+    }
+    else if (quviSeries === 4)
+    {
+        system.spawn(config.quvi + (arg || "") 
+            + " " + uri 
+            + " --exec " + JSON.stringify(config.player), tryPlayResponse);
+    }
+}
+function getQuality(uri)
+{
+    if (quviSeries === 9)
+    {
+        system.spawn(config.quvi + " dump -p enum -S " + uri, { cacheStdout : true }).then(chooseQuality.bind(null, uri));
+    }
+    else 
+    {
+        system.spawn(config.quvi + " -F " + uri, { cacheStdout : true }).then(chooseQuality.bind(null, uri));
+    } 
+}
+function chooseQuality(uri, response) 
+{
+    var i, q, val, l, format;
+    var stdout = response.stdout;
+    var qualities = [ { left : "best" }, { left : "default" } ];
+    var mappings;
+    if (quviSeries === 9)
+    {
+        q = stdout.split("QUVI_MEDIA_STREAM_PROPERTY_VIDEO_ENCODING");
+        mappings = q.map(function(current) {
+            var mapping = {};
+            var width, height, container;
+            current.split("\n").slice(1).forEach(function(property) {
+                var value, name;
+                var delimiter = property.indexOf("=");
+                if (delimiter == -1)
+                {
+                    return;
+                }
+                value = property.substring(delimiter + 1);
+                name = property.substring(0, delimiter);
+                mapping[name] = value;
+            });
+            return mapping;
+        });
+        mappings.sort(function(a, b) {
+            return b.QUVI_MEDIA_STREAM_PROPERTY_VIDEO_WIDTH - a.QUVI_MEDIA_STREAM_PROPERTY_VIDEO_WIDTH;
+        });
+        mappings.forEach(function(mapping) {
+            if (mapping.QUVI_MEDIA_STREAM_PROPERTY_ID)
+            {
+                mapping.label = (mapping.QUVI_MEDIA_STREAM_PROPERTY_VIDEO_WIDTH || "?") 
+                    + "x" + (mapping.QUVI_MEDIA_STREAM_PROPERTY_VIDEO_HEIGHT || "?")
+                    + " - " + (mapping.QUVI_MEDIA_STREAM_PROPERTY_CONTAINER || "");
+                qualities.push({ 
+                        left : mapping.label, 
+                        right : "id: " + mapping.QUVI_MEDIA_STREAM_PROPERTY_ID 
+                });
+            }
+        });
+
+    }
+    else if (quviSeries === 4)
+    {
+        if (/^\s*$/.test(stdout)) 
+        {
+            return;
+        }
+        q = stdout.substr(0, stdout.indexOf(" ")).split("|");
+        for (i=0; i<q.length; i++) {
+            if (!(/^\s*$/.test(q[i])))
+            {
+                qualities.push({left : q[i]});
+            }
+        }
+    }
+
+
+    timer.start(150, function() {
+        var arg = "";
+        util.tabComplete("Choose video quality:", qualities, function (response) {
+            if (quviSeries === 4)
+            {
+                response = response.replace(/^\s*|\s$/, "");
+                for (i=0; i<q.length; i++) {
+                    if (q[i] === response) {
+                        arg = " -f " + response;
+                        break;
+                    }
+                }
+            }
+            else if (quviSeries === 9)
+            {
+                if (response === "default")
+                    ; // ignore 
+                else if (response === "best")
+                {
+                    arg = " -s best ";
+                }
+                else 
+                {
+                    for (i=mappings.length-1; i>=0; --i)
+                    {
+                        if (response === mappings[i].label)
+                        {
+                            arg = " -s " + mappings[i].QUVI_MEDIA_STREAM_PROPERTY_ID + " ";
+                            break;
+                        }
+                    }
+                }
+            }
+            playVideo(uri, arg);
+        }, true);
+        return false;
+    });
+
+}
+function quviSpawn(wv) 
+{
+    var i, s;
+    var auto = true;
+    var quvi = config.quvi;
+    if (config.activeOnly && wv instanceof WebKitWebView && wv !== tabs.current)
+    {
+        return;
+    }
+    var uri = wv.uri || tabs.current.uri;
+
+    for (i=0; i<supported.length; i++) {
+        s = supported[i];
+        if (s.test(uri)) {
+            if (config.chooseQuality) {
+                getQuality(uri);
+            }
+            else {
+                playVideo(uri);
+            }
+            return;
+        }
+    }
+    if (auto === false) 
+    {
+        io.error("Not supported by quvi");
+    }
+}
+function quviScan(wv)
+{
+    var uri = wv.uri || tabs.current.uri;
+    system.spawn('sh -c \'' + 'quvi scan '+ uri + ' | tail -1 | quvi dump --exec "mplayer %u" \'')
+    // system.spawn("myquvi " + uri)
+}
+function initSettings()
+{
+    if (config.autoPlay) {
+        Signal.connect("loadCommitted", quviSpawn);
+    }
+    if (typeof config.shortcut === "string" || typeof config.command === "string") {
+        bind(config.shortcut, quviScan, config.command);
+    }
+}
+function supported_v4(response) 
+{
+    var i;
+    var lines = response.split("\n");
+    for (i=0; i<lines.length; i++) {
+        if (lines[i]) {
+            try {
+                var pattern = lines[i].match(/^\s*\S+/)[0];
+                supported.push(new RegExp(pattern.replace(/%/g, "\\")));
+            } 
+            catch(e) {
+                extensions.error(me, e);
+            }
+        }
+    }
+    initSettings();
+}
+function supported_v9(response)
+{
+    var lines = response.split("\n");
+    supported = lines.filter(function(line) {
+        return !/^\s*$|^#.*/.test(line);
+    }).map(function(line) {
+        return new RegExp(".*[./]" + RegExp.escape(line) + "[:/$].*");
+    });
+    initSettings();
+}
+function getSupported(d, command, callback) {
+    system.spawn(command, { cacheStdout : true }).then(function(response) {
+        callback(response.stdout);
+        d.resolve(true);
+    }, function() {
+        d.reject();
+    });
+}
+var autoquviExtension =  { 
+    defaultConfig : defaultConfig, 
+    init : function (c) {
+        var d = new Deferred();
+        var stat;
+        config = c;
+        var major, minor, micro;
+        system.spawn(config.quvi + " --version", { cacheStdout : true }).then(function(response) {
+            var versionLine = response.stdout.split("\n")[0];
+            var version = /[0-9]+\.[0-9]+(\.[0-9]+)?/.exec(versionLine)[0].split(".");
+            major = parseInt(version[0], 10); 
+            minor = parseInt(version[1], 10); 
+            micro = parseInt(version[2], 10);
+        }).then(function() {
+            if (major === 0 && minor >= 9)
+            {
+                quviSeries = 9;
+                getSupported(d, config.quvi + " info -D", supported_v9);
+            }
+            else if (major === 0 && minor >= 4)
+            {
+                quviSeries = 4;
+                getSupported(d, config.quvi + " --support", supported_v4);
+            }
+            else 
+            {
+                extensions.error("autoquvi", "Unsupported quvi version");
+                d.reject();
+            }
+        });
+        return d;
+    },
+    end : function () {
+        unbind(quviSpawn);
+        Signal.disconnect(quviSpawn);
+        return true;
+    }
+
+};
+return autoquviExtension;
+// vim: set ft=javascript:
