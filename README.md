@@ -16,3 +16,5 @@ So basicaly I modified dwb extension autoquvi, created by Stefan Bolte. It works
 that I can only play videos on such websites as youtube or vimeo. I wanted to play that  embedded videos,
 so when I get to the website with that I type :qutoquvi and it is immedietly streamed to mplayer. 
 
+File autoquvi should be placed in your ~/.local/share/dwb/ directory
+
