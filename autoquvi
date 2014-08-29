@@ -63,127 +63,9 @@ var tryPlayResponse = {
 };
 function playVideo(uri, arg)
 {
-    if (quviSeries === 9)
-    {
-        system.spawn(
-                config.quvi 
-                + " dump " + (arg || "") + uri
-                + " --exec " + JSON.stringify(config.player), tryPlayResponse);
-    }
-    else if (quviSeries === 4)
-    {
-        system.spawn(config.quvi + (arg || "") 
-            + " " + uri 
-            + " --exec " + JSON.stringify(config.player), tryPlayResponse);
-    }
-}
-function getQuality(uri)
-{
-    if (quviSeries === 9)
-    {
-        system.spawn(config.quvi + " dump -p enum -S " + uri, { cacheStdout : true }).then(chooseQuality.bind(null, uri));
-    }
-    else 
-    {
-        system.spawn(config.quvi + " -F " + uri, { cacheStdout : true }).then(chooseQuality.bind(null, uri));
-    } 
-}
-function chooseQuality(uri, response) 
-{
-    var i, q, val, l, format;
-    var stdout = response.stdout;
-    var qualities = [ { left : "best" }, { left : "default" } ];
-    var mappings;
-    if (quviSeries === 9)
-    {
-        q = stdout.split("QUVI_MEDIA_STREAM_PROPERTY_VIDEO_ENCODING");
-        mappings = q.map(function(current) {
-            var mapping = {};
-            var width, height, container;
-            current.split("\n").slice(1).forEach(function(property) {
-                var value, name;
-                var delimiter = property.indexOf("=");
-                if (delimiter == -1)
-                {
-                    return;
-                }
-                value = property.substring(delimiter + 1);
-                name = property.substring(0, delimiter);
-                mapping[name] = value;
-            });
-            return mapping;
-        });
-        mappings.sort(function(a, b) {
-            return b.QUVI_MEDIA_STREAM_PROPERTY_VIDEO_WIDTH - a.QUVI_MEDIA_STREAM_PROPERTY_VIDEO_WIDTH;
-        });
-        mappings.forEach(function(mapping) {
-            if (mapping.QUVI_MEDIA_STREAM_PROPERTY_ID)
-            {
-                mapping.label = (mapping.QUVI_MEDIA_STREAM_PROPERTY_VIDEO_WIDTH || "?") 
-                    + "x" + (mapping.QUVI_MEDIA_STREAM_PROPERTY_VIDEO_HEIGHT || "?")
-                    + " - " + (mapping.QUVI_MEDIA_STREAM_PROPERTY_CONTAINER || "");
-                qualities.push({ 
-                        left : mapping.label, 
-                        right : "id: " + mapping.QUVI_MEDIA_STREAM_PROPERTY_ID 
-                });
-            }
-        });
-
-    }
-    else if (quviSeries === 4)
-    {
-        if (/^\s*$/.test(stdout)) 
-        {
-            return;
-        }
-        q = stdout.substr(0, stdout.indexOf(" ")).split("|");
-        for (i=0; i<q.length; i++) {
-            if (!(/^\s*$/.test(q[i])))
-            {
-                qualities.push({left : q[i]});
-            }
-        }
-    }
-
-
-    timer.start(150, function() {
-        var arg = "";
-        util.tabComplete("Choose video quality:", qualities, function (response) {
-            if (quviSeries === 4)
-            {
-                response = response.replace(/^\s*|\s$/, "");
-                for (i=0; i<q.length; i++) {
-                    if (q[i] === response) {
-                        arg = " -f " + response;
-                        break;
-                    }
-                }
-            }
-            else if (quviSeries === 9)
-            {
-                if (response === "default")
-                    ; // ignore 
-                else if (response === "best")
-                {
-                    arg = " -s best ";
-                }
-                else 
-                {
-                    for (i=mappings.length-1; i>=0; --i)
-                    {
-                        if (response === mappings[i].label)
-                        {
-                            arg = " -s " + mappings[i].QUVI_MEDIA_STREAM_PROPERTY_ID + " ";
-                            break;
-                        }
-                    }
-                }
-            }
-            playVideo(uri, arg);
-        }, true);
-        return false;
-    });
-
+    
+    system.spawn("myquvi '" + uri + "'");
+    io.notify("Playing video using autoquvi from video service");
 }
 function quviSpawn(wv) 
 {
@@ -199,12 +81,8 @@ function quviSpawn(wv)
     for (i=0; i<supported.length; i++) {
         s = supported[i];
         if (s.test(uri)) {
-            if (config.chooseQuality) {
-                getQuality(uri);
-            }
-            else {
-                playVideo(uri);
-            }
+            playVideo(uri);
+            io.notify("Playing video using autoquvi");
             return;
         }
     }
@@ -216,8 +94,8 @@ function quviSpawn(wv)
 function quviScan(wv)
 {
     var uri = wv.uri || tabs.current.uri;
-    system.spawn('sh -c \'' + 'quvi scan '+ uri + ' | tail -1 | quvi dump --exec "mplayer %u" \'')
-    // system.spawn("myquvi " + uri)
+    system.spawn("myquvi '" + uri + "'")
+    io.notify("Playing video using autoquvi");
 }
 function initSettings()
 {

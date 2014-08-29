@@ -17,4 +17,4 @@ that I can only play videos on such websites as youtube or vimeo. I wanted to pl
 so when I get to the website with that I type :qutoquvi and it is immedietly streamed to mplayer. 
 
 File autoquvi should be placed in your ~/.local/share/dwb/extensions/ directory
-
+myquvi should be added to path and be executable
