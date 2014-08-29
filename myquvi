@@ -1,0 +1,6 @@
+#!/bin/bash
+
+COOKIE_FILE=/var/tmp/youtube-dl-cookies.txt
+URL=$(quvi scan $1 | tail -1)
+mplayer -cookies -cookies-file ${COOKIE_FILE} $(youtube-dl -g --prefer-insecure --cookies ${COOKIE_FILE} ${URL}) -loop 0
+
